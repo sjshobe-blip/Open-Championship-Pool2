@@ -1,141 +1,38 @@
-/* POST /.netlify/functions/save-state
-   Actions:
-     { action: "checkCode",  code }                 -> validates commissioner code
-     { action: "addTeam",    team: {teamName, golfers[], winningScoreGuess} }
-     { action: "saveScores", code, scores: {...} }  -> commissioner only
-   Storage: Netlify Blobs, store "open-pool-2026", keys "teams" and "scores".
-   Set the commissioner code in the COMMISSIONER_CODE environment variable
-   in the Netlify dashboard (Site settings > Environment variables).
-   Falls back to "0703" if the variable is not set.
-
+/* GET /.netlify/functions/get-state
+   Returns { teams: [...], scores: {...} } from Netlify Blobs.
    Written in the classic Netlify Functions format (named "handler" export,
-   event/context signature) rather than the newer default-export Request/
-   Response style, since that's explicitly what the runtime expects here.
-
-   Everything after JSON parsing runs inside a top-level try/catch so an
-   unexpected error returns a readable 500 with a message instead of an
-   opaque 502 from the platform. */
+   event/context signature) to match save-state.mjs. */
 
 import { getStore } from "@netlify/blobs";
 
-var MAX_TEAMS = 100;
-var ROSTER_SIZE = 5;
-var GUESS_MIN = -40;
-var GUESS_MAX = 60;
-
-function bad(msg, status) {
-  return {
-    statusCode: status || 400,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ok: false, error: msg })
-  };
-}
-
-function good(extra) {
-  var body = { ok: true };
-  var k;
-  for (k in (extra || {})) body[k] = extra[k];
-  return {
-    statusCode: 200,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-    body: JSON.stringify(body)
-  };
-}
-
-function commissionerCode() {
-  return process.env.COMMISSIONER_CODE || "0703";
-}
-
 export async function handler(event, context) {
-  if (event.httpMethod !== "POST") return bad("POST only", 405);
-
-  var payload;
-  try {
-    payload = JSON.parse(event.body || "{}");
-  } catch (e) {
-    return bad("Invalid JSON");
-  }
-
   try {
     var store = getStore("open-pool-2026");
 
-    /* ---------- checkCode ---------- */
-    if (payload.action === "checkCode") {
-      if (String(payload.code) === commissionerCode()) return good();
-      return bad("Incorrect code", 403);
-    }
+    var teams = [];
+    var scores = {};
 
-    /* ---------- addTeam ---------- */
-    if (payload.action === "addTeam") {
-      var team = payload.team;
-      if (!team || typeof team.teamName !== "string" || !Array.isArray(team.golfers)) {
-        return bad("Malformed team");
-      }
-      var name = team.teamName.trim().slice(0, 40);
-      if (!name) return bad("Team name required");
-      if (team.golfers.length !== ROSTER_SIZE) {
-        return bad("Team must have exactly " + ROSTER_SIZE + " golfers");
-      }
+    try {
+      var t = await store.get("teams", { type: "json" });
+      if (t) teams = t;
+    } catch (e) { /* first run: key absent */ }
 
-      var guess = team.winningScoreGuess;
-      if (typeof guess !== "number" || !isFinite(guess) || guess < GUESS_MIN || guess > GUESS_MAX) {
-        return bad("Enter a valid winning-score guess");
-      }
+    try {
+      var s = await store.get("scores", { type: "json" });
+      if (s) scores = s;
+    } catch (e) { /* first run: key absent */ }
 
-      var teams = [];
-      try {
-        var t = await store.get("teams", { type: "json" });
-        if (t) teams = t;
-      } catch (e) { /* first run: key absent */ }
-
-      if (teams.length >= MAX_TEAMS) return bad("Pool is full");
-
-      var i, j;
-      var lower = name.toLowerCase();
-      for (i = 0; i < teams.length; i++) {
-        if (teams[i].teamName.toLowerCase() === lower) {
-          return bad("Team name already taken");
-        }
-      }
-      /* enforce no duplicate golfers across teams */
-      var taken = {};
-      for (i = 0; i < teams.length; i++) {
-        for (j = 0; j < teams[i].golfers.length; j++) {
-          taken[teams[i].golfers[j]] = teams[i].teamName;
-        }
-      }
-      var seenInTeam = {};
-      for (j = 0; j < team.golfers.length; j++) {
-        var g = String(team.golfers[j]);
-        if (seenInTeam[g]) return bad("Duplicate golfer in team: " + g);
-        seenInTeam[g] = true;
-        if (taken[g]) {
-          return bad(g + " was already drafted by " + taken[g] + ". Refresh and pick again.");
-        }
-      }
-
-      teams.push({
-        teamName: name,
-        golfers: team.golfers.map(String),
-        winningScoreGuess: guess
-      });
-      await store.setJSON("teams", teams);
-      return good({ teams: teams });
-    }
-
-    /* ---------- saveScores (commissioner only) ---------- */
-    if (payload.action === "saveScores") {
-      if (String(payload.code) !== commissionerCode()) return bad("Incorrect code", 403);
-      if (typeof payload.scores !== "object" || payload.scores === null) {
-        return bad("Malformed scores");
-      }
-      await store.setJSON("scores", payload.scores);
-      return good();
-    }
-
-    return bad("Unknown action");
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      body: JSON.stringify({ teams: teams, scores: scores })
+    };
   } catch (err) {
     var msg = (err && err.message) ? err.message : String(err);
-    return bad("Server error: " + msg, 500);
+    return {
+      statusCode: 500,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ok: false, error: "Server error: " + msg })
+    };
   }
 }
