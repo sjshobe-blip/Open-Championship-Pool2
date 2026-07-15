@@ -2,6 +2,8 @@
    GOLFER SELECT - searchable autocomplete dropdown
    ------------------------------------------------------------
    Requires: golfers-data.js loaded first (defines GOLFERS).
+   Results are sorted by tier (1 = favorites first, nulls last),
+   then alphabetically by name within each tier.
    Usage:
      var picker = createGolferSelect({
        container: document.getElementById("pick-slot-1"),
@@ -75,6 +77,18 @@ function createGolferSelect(opts) {
     return reversed.indexOf(q) !== -1;
   }
 
+  /* sort: tier ascending (1 first), untiered/null last, then name A-Z */
+  function sortForDisplay(arr) {
+    var copy = arr.slice();
+    copy.sort(function (a, b) {
+      var ta = (typeof a.tier === "number") ? a.tier : 999;
+      var tb = (typeof b.tier === "number") ? b.tier : 999;
+      if (ta !== tb) return ta - tb;
+      return a.name.localeCompare(b.name);
+    });
+    return copy;
+  }
+
   function buildRow(golfer) {
     var isTaken = takenNames[normalizeName(golfer.name)] === true;
     var row = document.createElement("div");
@@ -120,14 +134,32 @@ function createGolferSelect(opts) {
 
   function renderList(query) {
     list.innerHTML = "";
-    var shown = 0;
+    var filtered = [];
     var i;
     for (i = 0; i < GOLFERS.length; i++) {
-      if (matches(GOLFERS[i], query)) {
-        list.appendChild(buildRow(GOLFERS[i]));
-        shown++;
-        if (shown >= 60) break; /* cap render for perf */
+      if (matches(GOLFERS[i], query)) filtered.push(GOLFERS[i]);
+    }
+    filtered = sortForDisplay(filtered);
+
+    var shown = 0;
+    var lastTier = null;
+    for (i = 0; i < filtered.length; i++) {
+      var g = filtered[i];
+      var thisTier = (typeof g.tier === "number") ? g.tier : null;
+
+      /* tier header divider, only when browsing (no query) so
+         search results stay a flat, fast list */
+      if (!query && thisTier !== lastTier) {
+        var header = document.createElement("div");
+        header.className = "gs-tier-header";
+        header.textContent = (thisTier === null) ? "UNTIERED" : "TIER " + thisTier;
+        list.appendChild(header);
+        lastTier = thisTier;
       }
+
+      list.appendChild(buildRow(g));
+      shown++;
+      if (shown >= 80) break; /* cap render for perf */
     }
     if (shown === 0) {
       var empty = document.createElement("div");
