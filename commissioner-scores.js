@@ -150,7 +150,20 @@ function applyScores(store, updates) {
    Returns sorted array (lowest total first):
      [{ teamName, total, bestGolfer: {name, score}, golferDetails: [...] }]
    Tiebreaker: best single golfer score on the team. */
+function computeCurrentLeaderScore(scores) {
+  var lowest = null;
+  var name;
+  for (name in scores) {
+    var rec = scores[name];
+    if (rec.status === "active" && (lowest === null || rec.score < lowest)) {
+      lowest = rec.score;
+    }
+  }
+  return lowest;
+}
+
 function computeStandings(teams, scores) {
+  var leaderScore = computeCurrentLeaderScore(scores);
   var results = [];
   var i, j;
 
@@ -187,11 +200,18 @@ function computeStandings(teams, scores) {
       if (!details[j].dropped) total += details[j].score;
     }
 
+    var guessDiff = null;
+    if (leaderScore !== null && typeof team.winningScoreGuess === "number") {
+      guessDiff = Math.abs(team.winningScoreGuess - leaderScore);
+    }
+
     results.push({
       teamName: team.teamName,
       total: total,
       bestGolfer: best,
-      golferDetails: details
+      golferDetails: details,
+      winningScoreGuess: (typeof team.winningScoreGuess === "number") ? team.winningScoreGuess : null,
+      guessDiff: guessDiff
     });
   }
 
@@ -199,7 +219,13 @@ function computeStandings(teams, scores) {
     if (a.total !== b.total) return a.total - b.total;
     var aBest = a.bestGolfer ? a.bestGolfer.score : 0;
     var bBest = b.bestGolfer ? b.bestGolfer.score : 0;
-    return aBest - bBest;
+    if (aBest !== bBest) return aBest - bBest;
+    /* still tied: whoever guessed closest to the current tournament
+       leader's score wins. Teams with no guess or before any scores
+       exist (guessDiff === null) sort after teams that have one. */
+    var aDiff = (a.guessDiff === null) ? Infinity : a.guessDiff;
+    var bDiff = (b.guessDiff === null) ? Infinity : b.guessDiff;
+    return aDiff - bDiff;
   });
 
   return results;

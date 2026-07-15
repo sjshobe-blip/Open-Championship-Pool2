@@ -327,6 +327,9 @@
     </p>
     <label class="field-label" for="team-name-input">TEAM NAME</label>
     <input id="team-name-input" class="text-input" type="text" placeholder="e.g. ShobeMeTheMoney" maxlength="40">
+    <label class="field-label" for="winning-guess-input">GUESS THE TOURNAMENT WINNING SCORE (TO PAR)</label>
+    <input id="winning-guess-input" class="text-input" type="text" inputmode="numeric" placeholder="e.g. -15, E, or +3" maxlength="6">
+    <p class="comm-hint" style="margin-top:6px;">Used only as a final tiebreaker if teams are still tied after totals and best-golfer score.</p>
     <div id="tier-sections"></div>
     <button id="team-submit" class="btn">Submit Team</button>
     <div id="team-status" class="form-status"></div>
@@ -422,12 +425,22 @@
     var i, j;
     for (i = 0; i < standings.length; i++) {
       var s = standings[i];
-      var tiedWithPrev = (i > 0 && standings[i - 1].total === s.total);
-      var tiedWithNext = (i < standings.length - 1 && standings[i + 1].total === s.total);
-      var isTied = tiedWithPrev || tiedWithNext;
+      var neighbor = null;
+      if (i > 0 && standings[i - 1].total === s.total) neighbor = standings[i - 1];
+      else if (i < standings.length - 1 && standings[i + 1].total === s.total) neighbor = standings[i + 1];
       var nameCell = escapeHtml(s.teamName);
-      if (isTied) {
-        nameCell += ' <span class="tie-badge">TIE \u2013 won on best golfer</span>';
+      if (neighbor) {
+        var aBest = s.bestGolfer ? s.bestGolfer.score : 0;
+        var bBest = neighbor.bestGolfer ? neighbor.bestGolfer.score : 0;
+        var reason;
+        if (aBest !== bBest) {
+          reason = "won on best golfer";
+        } else if (s.guessDiff !== null && neighbor.guessDiff !== null && s.guessDiff !== neighbor.guessDiff) {
+          reason = "won on closest winning-score guess";
+        } else {
+          reason = "still tied";
+        }
+        nameCell += ' <span class="tie-badge">TIE \u2013 ' + reason + '</span>';
       }
       html += '<tr><td class="pos">' + (i + 1) + '</td>' +
         '<td class="team-name" data-team="' + i + '">' + nameCell + '</td>' +
@@ -612,12 +625,24 @@
       return;
     }
 
-    var team = { teamName: name, golfers: golfers };
+    var guessRaw = document.getElementById("winning-guess-input").value.trim();
+    if (!guessRaw) {
+      statusEl.innerHTML = '<span class="warn">Enter your guess for the tournament winning score.</span>';
+      return;
+    }
+    var guessParsed = parseScoreToken(guessRaw);
+    if (guessParsed === null || guessParsed.status !== "active") {
+      statusEl.innerHTML = '<span class="warn">Enter a valid score guess, like -15, E, or +3.</span>';
+      return;
+    }
+
+    var team = { teamName: name, golfers: golfers, winningScoreGuess: guessParsed.value };
     statusEl.innerHTML = "Submitting&hellip;";
     apiSave({ action: "addTeam", team: team }).then(function (data) {
       TEAMS = data.teams;
       statusEl.innerHTML = '<span class="ok">Team submitted. Good luck!</span>';
       document.getElementById("team-name-input").value = "";
+      document.getElementById("winning-guess-input").value = "";
       buildTierSections();
       renderBoard();
     }).catch(function (err) {
