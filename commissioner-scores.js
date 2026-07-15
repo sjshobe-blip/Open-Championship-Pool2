@@ -156,18 +156,35 @@ function computeStandings(teams, scores) {
 
   for (i = 0; i < teams.length; i++) {
     var team = teams[i];
-    var total = 0;
     var best = null;
     var details = [];
 
     for (j = 0; j < team.golfers.length; j++) {
       var gName = team.golfers[j];
       var rec = scores[gName] || { score: 0, status: "pending" };
-      total += rec.score;
-      details.push({ name: gName, score: rec.score, status: rec.status });
+      details.push({ name: gName, score: rec.score, status: rec.status, dropped: false });
       if (best === null || rec.score < best.score) {
         best = { name: gName, score: rec.score };
       }
+    }
+
+    /* Drop the single worst (highest) score from the total.
+       If multiple golfers tie for worst, only one is dropped -
+       the last one encountered in draft order; the tie means
+       the total comes out identical regardless of which is picked. */
+    var worstIndex = -1;
+    for (j = 0; j < details.length; j++) {
+      if (worstIndex === -1 || details[j].score >= details[worstIndex].score) {
+        worstIndex = j;
+      }
+    }
+    if (worstIndex !== -1 && details.length > 1) {
+      details[worstIndex].dropped = true;
+    }
+
+    var total = 0;
+    for (j = 0; j < details.length; j++) {
+      if (!details[j].dropped) total += details[j].score;
     }
 
     results.push({
