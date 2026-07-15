@@ -116,6 +116,9 @@
   .total { font-weight: bold; text-align: right; width: 70px; }
   .team-name { cursor: pointer; }
   .status-cut { color: #a33; font-size: 11px; letter-spacing: 1px; }
+  .tie-badge { color: var(--gold); font-size: 11px; letter-spacing: 0.5px; font-style: italic; }
+  .dropped-golfer { text-decoration: line-through; opacity: 0.55; }
+  .status-dropped { color: #7a8296; font-size: 11px; letter-spacing: 1px; }
   .updated-note { font-size: 12px; color: #7a8296; margin-top: 8px; }
 
   .field-label {
@@ -419,15 +422,26 @@
     var i, j;
     for (i = 0; i < standings.length; i++) {
       var s = standings[i];
+      var tiedWithPrev = (i > 0 && standings[i - 1].total === s.total);
+      var tiedWithNext = (i < standings.length - 1 && standings[i + 1].total === s.total);
+      var isTied = tiedWithPrev || tiedWithNext;
+      var nameCell = escapeHtml(s.teamName);
+      if (isTied) {
+        nameCell += ' <span class="tie-badge">TIE \u2013 won on best golfer</span>';
+      }
       html += '<tr><td class="pos">' + (i + 1) + '</td>' +
-        '<td class="team-name" data-team="' + i + '">' + escapeHtml(s.teamName) + '</td>' +
+        '<td class="team-name" data-team="' + i + '">' + nameCell + '</td>' +
         '<td class="total">' + formatToPar(s.total) + '</td></tr>';
       html += '<tr class="expand-row" id="expand-' + i + '" style="display:none;"><td></td><td colspan="2">';
       for (j = 0; j < s.golferDetails.length; j++) {
         var g = s.golferDetails[j];
-        html += escapeHtml(g.name) + " &mdash; " + formatToPar(g.score);
+        var rowClass = g.dropped ? ' class="dropped-golfer"' : '';
+        html += '<span' + rowClass + '>' + escapeHtml(g.name) + " &mdash; " + formatToPar(g.score) + '</span>';
         if (g.status === "cut" || g.status === "wd" || g.status === "dq") {
           html += ' <span class="status-cut">' + g.status.toUpperCase() + '</span>';
+        }
+        if (g.dropped) {
+          html += ' <span class="status-dropped">DROPPED</span>';
         }
         if (j < s.golferDetails.length - 1) html += "<br>";
       }
